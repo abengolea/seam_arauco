@@ -1,0 +1,69 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "materiales_ot",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "schema_version", "order": "ASCENDING" },
+        { "fieldPath": "creado_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "materiales_ot",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "ot_tipo", "order": "ASCENDING" },
+        { "fieldPath": "creado_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "materiales_ot",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "ot_especialidad", "order": "ASCENDING" },
+        { "fieldPath": "creado_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "materiales_ot",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "origen", "order": "ASCENDING" },
+        { "fieldPath": "creado_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "work_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "centro", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "slots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dia_semana", "order": "ASCENDING" },
+        { "fieldPath": "orden_en_dia", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "plan_rows",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dia_semana", "order": "ASCENDING" },
+        { "fieldPath": "orden", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "programa_semanal",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "centro", "order": "ASCENDING" },
+        { "fieldPath": "fechaInicio", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

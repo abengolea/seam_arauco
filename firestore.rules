@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDocPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function userDoc() {
+      return get(userDocPath());
+    }
+
+    /** Sin exists(), si `users/{uid}` no está creado aún, `get().data` rompe la regla y todo queda denegado. */
+    function userRole() {
+      return signedIn() && exists(userDocPath()) &&
+          userDoc().data.rol in ['tecnico', 'supervisor', 'admin']
+        ? userDoc().data.rol
+        : 'tecnico';
+    }
+
+    function isAdmin() {
+      return signedIn() && userRole() == 'admin';
+    }
+
+    function isSupervisor() {
+      return signedIn() && (userRole() == 'supervisor' || isAdmin());
+    }
+
+    function isTecnicoUp() {
+      return signedIn() && (userRole() == 'tecnico' || isSupervisor());
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isSupervisor());
+      allow write: if false;
+    }
+
+    match /assets/{id} {
+      allow read: if isTecnicoUp();
+      allow write: if isSupervisor();
+    }
+
+    match /avisos/{id} {
+      allow read: if isTecnicoUp();
+      allow create, update: if isTecnicoUp();
+      allow delete: if isAdmin();
+    }
+
+    match /work_orders/{woId} {
+      allow read: if isTecnicoUp();
+      allow create, update: if isTecnicoUp();
+      allow delete: if isAdmin();
+
+      match /checklist/{itemId} {
+        allow read, write: if isTecnicoUp();
+      }
+      match /materiales_ot/{lineId} {
+        allow read, write: if isTecnicoUp();
+      }
+      match /evidencias/{evId} {
+        allow read, write: if isTecnicoUp();
+      }
+      match /historial/{hId} {
+        allow read: if isTecnicoUp();
+        allow write: if false;
+      }
+    }
+
+    match /materials/{id} {
+      allow read: if isTecnicoUp();
+      allow write: if isSupervisor();
+    }
+
+    match /weekly_schedule/{weekId} {
+      allow read: if isTecnicoUp();
+      allow write: if isSupervisor();
+      match /slots/{slotId} {
+        allow read: if isTecnicoUp();
+        allow write: if isSupervisor();
+      }
+      match /plan_rows/{rowId} {
+        allow read: if isTecnicoUp();
+        allow write: if isSupervisor();
+      }
+    }
+
+    match /programa_semanal/{semanaId} {
+      allow read: if isTecnicoUp();
+      allow write: if isSupervisor();
+    }
+
+    match /counters/{id} {
+      allow read, write: if false;
+    }
+  }
+}
