@@ -1,6 +1,6 @@
 "use client";
 
-import { getFirebaseDb } from "@/firebase/firebaseClient";
+import { getFirebaseAuth, getFirebaseDb } from "@/firebase/firebaseClient";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import type {
   MaterialCatalogItem,
@@ -247,23 +247,40 @@ export function useMaterialsCatalogLive(max: number = 500): {
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    const db = getFirebaseDb();
-    const q = query(collection(db, "materials"), limit(max));
-    const unsub: Unsubscribe = onSnapshot(
-      q,
-      (snap) => {
-        const rows = snap.docs.map(
-          (d) => ({ id: d.id, ...(d.data() as Omit<MaterialCatalogItem, "id">) }),
-        );
-        setItems(rows);
-        setLoading(false);
-      },
-      (err) => {
-        setError(err);
-        setLoading(false);
-      },
-    );
-    return () => unsub();
+    let cancelled = false;
+    let unsub: Unsubscribe | undefined;
+    void (async () => {
+      const auth = getFirebaseAuth();
+      await auth.authStateReady();
+      if (cancelled || !auth.currentUser) {
+        if (!cancelled) {
+          setItems([]);
+          setLoading(false);
+          setError(null);
+        }
+        return;
+      }
+      const db = getFirebaseDb();
+      const q = query(collection(db, "materials"), limit(max));
+      unsub = onSnapshot(
+        q,
+        (snap) => {
+          const rows = snap.docs.map(
+            (d) => ({ id: d.id, ...(d.data() as Omit<MaterialCatalogItem, "id">) }),
+          );
+          setItems(rows);
+          setLoading(false);
+        },
+        (err) => {
+          setError(err);
+          setLoading(false);
+        },
+      );
+    })();
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
   }, [max]);
 
   const itemsBajoStock = useMemo(() => {

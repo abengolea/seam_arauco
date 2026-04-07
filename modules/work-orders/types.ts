@@ -1,7 +1,7 @@
 import type { Timestamp } from "firebase/firestore";
 import type { Especialidad, FrecuenciaMantenimiento, TipoAviso } from "@/modules/notices/types";
 
-/** Subtipo operativo para vistas Tareas (además de `tipo_trabajo`). */
+/** Subtipo operativo para vistas de órdenes de trabajo (además de `tipo_trabajo`). */
 export type WorkOrderSubTipo = "preventivo" | "correctivo" | "checklist";
 
 /** Estado simplificado para UI de listados y filtros. */
@@ -32,6 +32,8 @@ export type FirmaDigital = {
 export type WorkOrder = {
   id: string;
   n_ot: string;
+  /** Opcional: misma clave que `avisos`/`plan_mantenimiento` si la OT sale del plan maestro. */
+  plan_id?: string;
   /** Referencia a `avisos/{id}`; vacío si la OT es manual y solo hay número de aviso papel/programa. */
   aviso_id: string;
   asset_id: string;

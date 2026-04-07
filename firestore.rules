@@ -14,44 +14,43 @@ service cloud.firestore {
       return get(userDocPath());
     }
 
+    /**
+     * Centro y rol efectivos: preferir `users/{uid}` (misma fuente que la UI y `requirePermiso`).
+     * Si el JWT tiene claims viejos tras un cambio de rol/centro, priorizar token acá negaba lecturas
+     * (p. ej. consulta OT por centro como admin mientras el token seguía como técnico).
+     */
     function callerCentro() {
-      let c = request.auth.token.centro;
-      if (c != null && c != '') {
-        return c;
-      }
-      return exists(userDocPath()) ? userDoc().data.centro : '';
+      return (exists(userDocPath())
+        && userDoc().data.centro is string
+        && userDoc().data.centro != '')
+        ? userDoc().data.centro
+        : (request.auth.token.centro != null && request.auth.token.centro != ''
+          ? request.auth.token.centro
+          : '');
     }
 
     function callerRolRaw() {
-      let t = request.auth.token.rol;
-      if (t is string && t != '') {
-        return t;
-      }
-      if (exists(userDocPath())) {
-        let d = userDoc().data.rol;
-        if (d is string && d != '') {
-          return d;
-        }
-      }
-      return 'tecnico';
+      return (exists(userDocPath())
+        && userDoc().data.rol is string
+        && userDoc().data.rol != '')
+        ? userDoc().data.rol
+        : (request.auth.token.rol is string && request.auth.token.rol != ''
+          ? request.auth.token.rol
+          : 'tecnico');
     }
 
     /** Canonicaliza rol; valores desconocidos → técnico (evita permission-denied en lecturas). */
     function callerRol() {
       let r = callerRolRaw();
-      if (r == 'super_admin') {
-        return 'superadmin';
-      }
-      if (r == 'cliente_arauco') {
-        return 'cliente_arauco';
-      }
-      if (r == 'tecnico' || r == 'supervisor' || r == 'admin' || r == 'superadmin') {
-        return r;
-      }
-      if (isSuperadminRol(r)) {
-        return 'superadmin';
-      }
-      return 'tecnico';
+      return r == 'super_admin'
+        ? 'superadmin'
+        : r == 'cliente_arauco'
+          ? 'cliente_arauco'
+          : (r == 'tecnico' || r == 'supervisor' || r == 'admin' || r == 'superadmin')
+            ? r
+            : isSuperadminRol(r)
+              ? 'superadmin'
+              : 'tecnico';
     }
 
     function isSuperadminRol(r) {
@@ -85,27 +84,34 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/work_orders/$(woId)).data;
     }
 
-    function canReadWorkOrder(woId) {
-      let wo = workOrderData(woId);
+    /**
+     * Lectura OT desde el mapa `data` (p. ej. `resource.data` en el documento raíz).
+     * Importante: en consultas/listas, usar `resource.data` evita `get()` extra por doc y
+     * alinea la regla con lo que Firestore evalúa en list/query (menos permission-denied).
+     */
+    function canReadWorkOrderData(data) {
       let r = callerRol();
-      if (isSuperadminRol(r)) {
-        return true;
-      }
-      if (r == 'cliente_arauco') {
-        return wo.centro == callerCentro();
-      }
-      if (r == 'admin' || r == 'supervisor') {
-        return wo.centro == callerCentro();
-      }
-      return r == 'tecnico' && wo.tecnico_asignado_uid == request.auth.uid;
+      return isSuperadminRol(r)
+        ? true
+        : r == 'cliente_arauco'
+          ? data.centro == callerCentro()
+          : (r == 'admin' || r == 'supervisor')
+            ? data.centro == callerCentro()
+            : r == 'tecnico' && data.tecnico_asignado_uid == request.auth.uid;
+    }
+
+    /** Subcolecciones: leer datos de la OT padre vía get(). */
+    function canReadWorkOrder(woId) {
+      return canReadWorkOrderData(workOrderData(woId));
+    }
+
+    function canMutateWorkOrderData(data) {
+      let r = callerRol();
+      return r == 'cliente_arauco' ? false : canReadWorkOrderData(data);
     }
 
     function canMutateWorkOrder(woId) {
-      let r = callerRol();
-      if (r == 'cliente_arauco') {
-        return false;
-      }
-      return canReadWorkOrder(woId);
+      return canMutateWorkOrderData(workOrderData(woId));
     }
 
     function targetUserCentro(uid) {
@@ -146,12 +152,10 @@ service cloud.firestore {
     }
 
     match /work_orders/{woId} {
-      allow read: if signedIn() && exists(/databases/$(database)/documents/work_orders/$(woId))
-        && canReadWorkOrder(woId);
+      allow read: if signedIn() && canReadWorkOrderData(resource.data);
       allow create: if roleSupervisorUp()
         && (isSuperadminRol(callerRol()) || request.resource.data.centro == callerCentro());
-      allow update: if signedIn() && exists(/databases/$(database)/documents/work_orders/$(woId))
-        && canMutateWorkOrder(woId);
+      allow update: if signedIn() && canMutateWorkOrderData(resource.data);
       allow delete: if roleAdminPlantaUp();
 
       match /checklist/{itemId} {
@@ -169,7 +173,7 @@ service cloud.firestore {
       match /comentarios/{comentarioId} {
         allow read: if signedIn() && canReadWorkOrder(woId);
         allow create: if signedIn()
-          && request.auth.token.rol in ['cliente_arauco', 'supervisor', 'admin', 'superadmin']
+          && callerRol() in ['cliente_arauco', 'supervisor', 'admin', 'superadmin']
           && request.resource.data.autorId == request.auth.uid;
         allow update, delete: if false;
       }
@@ -219,13 +223,26 @@ service cloud.firestore {
     }
 
     match /planilla_templates/{templateId} {
-      allow read: if puedeLeerComoOperativo();
-      allow write: if roleAdminPlantaUp();
+      /* Igual que otras colecciones: exigir sesión antes de evaluar rol (evita deny/err previo a auth). */
+      allow read: if signedIn() && puedeLeerComoOperativo();
+      allow write: if signedIn() && roleAdminPlantaUp();
     }
 
     match /centros/{centroId} {
       allow read: if puedeLeerComoOperativo();
       allow write: if isSuperadminRol(callerRol());
+    }
+
+    match /plan_mantenimiento/{planId} {
+      allow read: if signedIn() && roleSupervisorUp()
+        && (isSuperadminRol(callerRol()) || resource.data.centro == callerCentro());
+      allow write: if false;
+    }
+
+    match /propuestas_semana/{propId} {
+      allow read: if signedIn() && roleSupervisorUp()
+        && (isSuperadminRol(callerRol()) || resource.data.centro == callerCentro());
+      allow write: if false;
     }
   }
 }

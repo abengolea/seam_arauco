@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "diag:firebase": "node scripts/diag-firebase-env.cjs",
     "import:assets": "tsx scripts/import-assets-from-xlsx.ts",
     "seed:import": "tsx scripts/seed/import-from-excel.ts",
-    "seed:templates": "tsx scripts/seed/seed-templates.ts"
+    "seed:sem-anual": "tsx scripts/seed/seed-sem-anual.ts",
+    "seed:templates": "tsx scripts/seed/seed-templates.ts",
+    "deploy:functions": "firebase deploy --only functions"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.31.0",
@@ -43,6 +46,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",

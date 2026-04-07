@@ -18,8 +18,7 @@ async function enviarPushSilencioso(
   const contact = process.env.VAPID_EMAIL ?? "mailto:admin@seam.com";
   if (!publicKey?.trim() || !privateKey?.trim()) return;
 
-  type PushModule = typeof import("web-push");
-  let webpush: PushModule;
+  let webpush: typeof import("web-push");
   try {
     webpush = await import("web-push");
   } catch (e) {
@@ -34,7 +33,7 @@ async function enviarPushSilencioso(
     if (!profile || profile.pushHabilitado !== true) continue;
     const raw = profile.pushSubscription;
     if (!raw || typeof raw !== "object") continue;
-    const sub = raw as webpush.PushSubscription;
+    const sub = raw as unknown as import("web-push").PushSubscription;
     try {
       await webpush.sendNotification(sub, JSON.stringify(payload));
     } catch (err) {

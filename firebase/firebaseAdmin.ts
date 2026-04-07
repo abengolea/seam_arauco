@@ -49,9 +49,21 @@ export function getFirebaseAdminApp(): App {
     return adminApp;
   }
 
+  // Cadena vacía hace que el SDK intente un archivo inválido en lugar de usar ADC (usuario gcloud).
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() === "") {
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  }
+
+  const adcProjectId = projectId?.trim();
+  if (!adcProjectId) {
+    throw new Error(
+      "Firebase Admin (ADC): falta NEXT_PUBLIC_FIREBASE_PROJECT_ID en el entorno del servidor. Sin projectId explícito, verifyIdToken puede fallar o validar contra el proyecto equivocado.",
+    );
+  }
+
   adminApp = initializeApp({
     credential: applicationDefault(),
-    projectId,
+    projectId: adcProjectId,
     storageBucket: bucket,
   });
 

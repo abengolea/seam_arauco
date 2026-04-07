@@ -88,6 +88,30 @@
         { "fieldPath": "centro", "order": "ASCENDING" },
         { "fieldPath": "tecnico_asignado_uid", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "centro", "order": "ASCENDING" },
+        { "fieldPath": "frecuencia_plan_mtsa", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "centro", "order": "ASCENDING" },
+        { "fieldPath": "tipo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "centro", "order": "ASCENDING" },
+        { "fieldPath": "frecuencia", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

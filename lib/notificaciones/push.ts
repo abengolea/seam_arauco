@@ -38,7 +38,10 @@ export async function solicitarPermisoPush(): Promise<boolean> {
     const json = sub.toJSON() as Record<string, unknown>;
     const token = await getClientIdToken();
     if (!token) return false;
-    const res = await actionGuardarPushSubscription(token, { subscription: json, pushHabilitado: true });
+    const res = await actionGuardarPushSubscription(token, {
+      subscription: json as { endpoint: string; expirationTime?: number | null; keys?: { p256dh: string; auth: string } },
+      pushHabilitado: true,
+    });
     return res.ok;
   } catch (e) {
     console.error("[push]", e);

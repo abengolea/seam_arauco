@@ -28,6 +28,8 @@ function colorPorTipo(t: NotificacionTipo): string {
       return "bg-violet-500";
     case "ot_vencida":
       return "bg-rose-600";
+    case "propuesta_disponible":
+      return "bg-sky-600";
     default:
       return "bg-zinc-400";
   }
@@ -73,7 +75,7 @@ export function NotificacionesBell() {
         type="button"
         variant="ghost"
         size="icon"
-        className="relative h-9 w-9 shrink-0 text-header-muted hover:bg-white/10 hover:text-header-fg"
+        className="relative text-header-muted hover:bg-white/10 hover:text-header-fg"
         aria-label="Notificaciones"
         onClick={() => setAbierto((o) => !o)}
       >

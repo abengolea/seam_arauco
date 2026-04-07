@@ -851,7 +851,7 @@ export function WorkOrderDetailClient({ workOrderId }: { workOrderId: string }) 
       ) : null}
 
       <Button variant="outline" asChild>
-        <Link href="/tareas">Volver a tareas</Link>
+        <Link href="/tareas">Volver a órdenes de trabajo</Link>
       </Button>
     </div>
   );

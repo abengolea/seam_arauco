@@ -1,5 +1,6 @@
 import { getAdminDb } from "@/firebase/firebaseAdmin";
 import { AppError } from "@/lib/errors/app-error";
+import { setPlanIncluidoOtPendiente } from "@/lib/plan-mantenimiento/admin";
 import { requireAsset } from "@/modules/assets/service";
 import { getCentroConfigMergedCached } from "@/modules/centros/config-cache";
 import { scheduleMaterialCatalogMatchAfterCreate } from "@/modules/materials/material-match-scheduler";
@@ -56,6 +57,11 @@ export async function createWorkOrderFromAviso(input: {
   avisoId: string;
   actorUid: string;
   checklistPlantilla?: Array<Omit<ChecklistItem, "id" | "cumplido_en" | "cumplido_por_uid">>;
+  fecha_inicio_programada?: AdminTimestamp | null;
+  tecnico_asignado_uid?: string;
+  tecnico_asignado_nombre?: string;
+  /** Si true, marca `plan_mantenimiento/{avisoId}.incluido_en_ot_pendiente` y `plan_id` en la OT. */
+  sincronizarPlanPendiente?: boolean;
 }): Promise<string> {
   const aviso = await requireAviso(input.avisoId);
   if (aviso.work_order_id) {
@@ -66,6 +72,12 @@ export async function createWorkOrderFromAviso(input: {
 
   const asset = await requireAsset(aviso.asset_id);
   const n_ot = await nextNotNumber();
+
+  const fechaProg = (
+    input.fecha_inicio_programada !== undefined
+      ? input.fecha_inicio_programada
+      : (aviso.fecha_programada ?? null)
+  ) as WorkOrder["fecha_inicio_programada"];
 
   const base: Omit<WorkOrder, "id" | "created_at" | "updated_at"> = {
     n_ot,
@@ -80,9 +92,16 @@ export async function createWorkOrderFromAviso(input: {
     estado: "ABIERTA",
     texto_trabajo: aviso.texto_corto,
     prioridad: aviso.prioridad,
-    fecha_inicio_programada: aviso.fecha_programada ?? null,
+    fecha_inicio_programada: fechaProg,
     firma_tecnico: null,
     firma_usuario: null,
+    ...(input.sincronizarPlanPendiente === true ? { plan_id: aviso.id } : {}),
+    ...(input.tecnico_asignado_uid
+      ? {
+          tecnico_asignado_uid: input.tecnico_asignado_uid,
+          tecnico_asignado_nombre: input.tecnico_asignado_nombre ?? "",
+        }
+      : {}),
   };
 
   const id = await createWorkOrderDoc(base);
@@ -90,6 +109,10 @@ export async function createWorkOrderFromAviso(input: {
     estado: "OT_GENERADA",
     work_order_id: id,
   });
+
+  if (input.sincronizarPlanPendiente === true) {
+    await setPlanIncluidoOtPendiente(aviso.id, id);
+  }
 
   await appendHistorialAdmin(id, {
     tipo: "CREADA",

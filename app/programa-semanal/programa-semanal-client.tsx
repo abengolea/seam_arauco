@@ -6,21 +6,51 @@ import {
   actionPatchWeeklyPlanRow,
   actionReplaceWeeklyPlanRows,
 } from "@/app/actions/weekly-plan";
-import { actionRemoveWeekSlot, actionScheduleWorkOrderInWeek } from "@/app/actions/schedule";
+import {
+  actionAddAvisoToProgramaPublicado,
+  actionRemoveWeekSlot,
+  actionScheduleWorkOrderInWeek,
+} from "@/app/actions/schedule";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEFAULT_CENTRO } from "@/lib/config/app-config";
-import { useWeeklyPlanRowsLive, useWeeklySlotsLive } from "@/modules/scheduling/hooks";
+import {
+  useAvisosVencimientos,
+  useAvisosPreventivosMT,
+  useWeeklyPlanRowsLive,
+  useWeeklySlotsLive,
+} from "@/modules/scheduling/hooks";
 import { getIsoWeekId, shiftIsoWeekId } from "@/modules/scheduling/iso-week";
-import { parseProgramaSemanalWorkbook } from "@/modules/scheduling/parse-programa-excel";
-import type { WeeklyPlanRow, WeeklyScheduleSlot } from "@/modules/scheduling/types";
+import {
+  parseProgramaSemanalWorkbook,
+  type ParsedWeekPlan,
+} from "@/modules/scheduling/parse-programa-excel";
+import type { DiaSemanaPrograma, WeeklyPlanRow, WeeklyScheduleSlot } from "@/modules/scheduling/types";
+import type { Aviso } from "@/modules/notices/types";
 import { useTodaysWorkOrdersCached } from "@/modules/work-orders/hooks";
 import { usePermisos } from "@/lib/permisos/usePermisos";
 import { getClientIdToken, useAuthUser, useUserProfile } from "@/modules/users/hooks";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Pencil, Trash2, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const DIA_NUM_A_DIA_PROGRAMA: Record<number, DiaSemanaPrograma> = {
+  1: "lunes",
+  2: "martes",
+  3: "miercoles",
+  4: "jueves",
+  5: "viernes",
+  6: "sabado",
+  7: "sabado",
+};
+
+function especialidadAvisoALabelProg(esp: string): string {
+  if (esp === "ELECTRICO" || esp === "HG") return "Electrico";
+  if (esp === "AA") return "Aire";
+  return "GG";
+}
 
 const DIA_LABEL: Record<number, string> = {
   1: "Lunes",
@@ -63,6 +93,7 @@ function groupPlanRowsByDay(rows: WeeklyPlanRow[], centro: string): Map<number, 
 }
 
 export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean }) {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuthUser();
   const { profile, loading: profileLoading } = useUserProfile(user?.uid);
   const { puede } = usePermisos();
@@ -70,6 +101,12 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
 
   const centro = profile?.centro ?? DEFAULT_CENTRO;
   const canEdit = puede("programa:editar");
+  const puedePlanOperativo = puede("programa:crear_ot") || puede("programa:editar");
+
+  useEffect(() => {
+    if (authLoading || profileLoading) return;
+    if (!puedePlanOperativo) router.replace("/programa");
+  }, [authLoading, profileLoading, puedePlanOperativo, router]);
 
   const { slots, loading: slotsLoading, error: slotsError } = useWeeklySlotsLive(weekId, user?.uid);
   const {
@@ -77,7 +114,15 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
     loading: planLoading,
     error: planError,
   } = useWeeklyPlanRowsLive(weekId, user?.uid);
-  const { rows: workOrders, loading: woLoading, error: woError } = useTodaysWorkOrdersCached(centro);
+  const { rows: workOrders, loading: woLoading, error: woError } = useTodaysWorkOrdersCached(
+    centro,
+    {
+      uid: user?.uid ?? "",
+      rol: profile?.rol ?? "tecnico",
+    },
+    { enabled: !user?.uid || !profileLoading },
+  );
+  const puedePublicarAvisoSa = puede("programa:crear_ot");
 
   const [workOrderId, setWorkOrderId] = useState("");
   const [dia, setDia] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7>(1);
@@ -90,6 +135,11 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
   const [manualDia, setManualDia] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7>(1);
   const [manualTexto, setManualTexto] = useState("");
   const [importScope, setImportScope] = useState<"current" | "all">("current");
+  const excelInputRef = useRef<HTMLInputElement>(null);
+  const [excelParsed, setExcelParsed] = useState<ParsedWeekPlan[] | null>(null);
+  const [excelFileLabel, setExcelFileLabel] = useState<string | null>(null);
+  const [excelReadError, setExcelReadError] = useState<string | null>(null);
+  const [manualFuente, setManualFuente] = useState<"periodo" | "sa">("periodo");
 
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [editLocalidad, setEditLocalidad] = useState("");
@@ -99,6 +149,33 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
 
   const slotsByDay = useMemo(() => groupSlotsByDay(slots, centro), [slots, centro]);
   const planByDay = useMemo(() => groupPlanRowsByDay(planRows, centro), [planRows, centro]);
+
+  const excelToImport = useMemo(() => {
+    if (!excelParsed?.length) return [];
+    return importScope === "current" ? excelParsed.filter((p) => p.weekId === weekId) : excelParsed;
+  }, [excelParsed, importScope, weekId]);
+
+  const superadminProg = profile?.rol === "superadmin" || profile?.rol === "super_admin";
+  const { avisos: avisosMT, loading: mtLoading } = useAvisosPreventivosMT({
+    authUid: user?.uid,
+    centro,
+    verTodosLosCentros: false,
+  });
+  const { avisos: avisosSA, loading: saVLoading } = useAvisosVencimientos({
+    authUid: user?.uid,
+    centro,
+    verTodosLosCentros: Boolean(superadminProg),
+  });
+  const saUrgentes = useMemo(() => {
+    return avisosSA
+      .filter(
+        (a) =>
+          a.estado_vencimiento_live === "vencido" ||
+          a.estado_vencimiento_live === "proximo" ||
+          a.estado_vencimiento_live === "sin_fecha",
+      )
+      .slice(0, 100);
+  }, [avisosSA]);
 
   const scheduleableWos = useMemo(
     () =>
@@ -149,6 +226,29 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onAddSaToProgramaPublicado(avisoFirestoreId: string) {
+    setMsg(null);
+    setBusy(true);
+    try {
+      const res = await actionAddAvisoToProgramaPublicado(await token(), {
+        weekId,
+        avisoFirestoreId,
+        dia: DIA_NUM_A_DIA_PROGRAMA[manualDia],
+      });
+      setMsg(res.ok ? "Aviso agregado al programa publicado (grilla)" : res.error.message);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function aplicarAvisoMTaManual(a: Pick<Aviso, "n_aviso" | "texto_corto" | "especialidad">) {
+    setManualEsp(especialidadAvisoALabelProg(a.especialidad));
+    setManualTexto(`${a.n_aviso} · ${a.texto_corto}`.trim());
+    setMsg("Datos copiados al cuadro de texto; revisá y pulsá Agregar al plan.");
   }
 
   async function onAddManualPlan() {
@@ -222,43 +322,57 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
     }
   }
 
-  async function onPickExcel(file: File | undefined) {
+  function clearExcelSelection() {
+    setExcelParsed(null);
+    setExcelFileLabel(null);
+    setExcelReadError(null);
+    if (excelInputRef.current) excelInputRef.current.value = "";
+  }
+
+  async function onExcelFileChosen(file: File | undefined) {
     if (!file) return;
     setMsg(null);
+    setExcelReadError(null);
     setBusy(true);
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
       const parsed = parseProgramaSemanalWorkbook(wb);
+      setExcelFileLabel(file.name);
       if (!parsed.length) {
-        setMsg(
+        setExcelParsed(null);
+        setExcelReadError(
           "No se encontraron hojas con formato Localidad / Especialidad y días Lunes–Sábado. Revisá el archivo.",
         );
         return;
       }
+      setExcelParsed(parsed);
+    } catch (e) {
+      setExcelParsed(null);
+      setExcelFileLabel(null);
+      setExcelReadError(e instanceof Error ? e.message : "Error al leer Excel");
+    } finally {
+      setBusy(false);
+      if (excelInputRef.current) excelInputRef.current.value = "";
+    }
+  }
 
-      const toImport =
-        importScope === "current" ? parsed.filter((p) => p.weekId === weekId) : parsed;
-
-      if (!toImport.length) {
-        setMsg(
-          `Ninguna hoja coincide con la semana ${weekId}. Cambiá a “Todas las semanas del archivo” o mové el calendario a la semana correcta.`,
-        );
-        return;
-      }
-
-      const ok = confirm(
-        importScope === "current"
-          ? `Se reemplazará el texto del plan de la semana ${weekId} (${toImport[0]?.rows.length ?? 0} bloques). Las OTs agendadas no se modifican. ¿Continuar?`
-          : `Se reemplazará el texto del plan en ${toImport.length} semana(s). Las OTs agendadas no se modifican. ¿Continuar?`,
-      );
-      if (!ok) {
-        setMsg("Importación cancelada");
-        return;
-      }
-
+  async function onImportExcelToPlan() {
+    if (!excelParsed?.length || !excelToImport.length) return;
+    setMsg(null);
+    const ok = confirm(
+      importScope === "current"
+        ? `Se reemplazará el texto del plan de la semana ${weekId} (${excelToImport[0]?.rows.length ?? 0} bloques). Las OTs agendadas no se modifican. ¿Continuar?`
+        : `Se reemplazará el texto del plan en ${excelToImport.length} semana(s). Las OTs agendadas no se modifican. ¿Continuar?`,
+    );
+    if (!ok) {
+      setMsg("Importación cancelada");
+      return;
+    }
+    setBusy(true);
+    try {
       const tok = await token();
-      for (const block of toImport) {
+      for (const block of excelToImport) {
         const res = await actionReplaceWeeklyPlanRows(tok, {
           weekId: block.weekId,
           rows: block.rows,
@@ -268,11 +382,11 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
           return;
         }
       }
-
-      const labels = toImport.map((p) => p.weekId).join(", ");
+      const labels = excelToImport.map((p) => p.weekId).join(", ");
       setMsg(`Plan importado: ${labels}`);
+      clearExcelSelection();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Error al leer Excel");
+      setMsg(e instanceof Error ? e.message : "Error al importar");
     } finally {
       setBusy(false);
     }
@@ -288,9 +402,10 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
         {embedded ? (
           <>
             <div>
-              <h2 className="text-lg font-semibold tracking-tight">OT en calendario · texto · Excel</h2>
+              <h2 className="text-lg font-semibold tracking-tight">Armar o cargar el plan</h2>
               <p className="text-xs text-muted-foreground">
-                Centro <span className="font-mono">{centro}</span>
+                OT en calendario, texto línea a línea o importar Excel · Centro{" "}
+                <span className="font-mono">{centro}</span>
                 {profile?.rol ? ` · ${profile.rol}` : null}
               </p>
             </div>
@@ -392,7 +507,8 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
               <CardDescription className="space-y-1.5">
                 <span>
                   Solo supervisores y administradores pueden editar el programa. Acá elegís una{" "}
-                  <strong>orden de trabajo que ya exista</strong> en el sistema (colección de tareas/OT) para asignarla
+                  <strong>orden de trabajo que ya exista</strong> en el sistema (colección de órdenes de trabajo / OT) para
+                  asignarla
                   a un día de esta semana. No es el mismo flujo que importar texto desde Excel: es enlazar una OT
                   concreta al calendario.
                 </span>
@@ -409,11 +525,11 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
               ) : null}
               {!woLoading && !woError && scheduleableWos.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No hay OTs elegibles para <span className="font-mono">{centro}</span>: o no hay tareas en las últimas
-                  cargadas, o todas están cerradas/anuladas/en borrador, o el campo <span className="font-mono">centro</span>{" "}
-                  de las OT no coincide. Podés revisar en{" "}
+                  No hay OTs elegibles para <span className="font-mono">{centro}</span>: o no hay órdenes de trabajo en
+                  las últimas cargadas, o todas están cerradas/anuladas/en borrador, o el campo{" "}
+                  <span className="font-mono">centro</span> de las OT no coincide. Podés revisar en{" "}
                   <Link href="/tareas" className="font-medium text-primary underline underline-offset-2">
-                    Tareas
+                    Órdenes de trabajo
                   </Link>{" "}
                   y crear o reabrir OTs según tu proceso.
                 </p>
@@ -480,6 +596,10 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Elegí el Excel, revisá el resumen y pulsá <strong>Importar al plan</strong>. Las OT del calendario de
+                arriba no cambian.
+              </p>
               <div className="flex flex-wrap items-end gap-3">
                 <label className="flex flex-col gap-1 text-sm">
                   Alcance importación
@@ -493,23 +613,173 @@ export function ProgramaSemanalClient({ embedded = false }: { embedded?: boolean
                     <option value="all">Todas las semanas del archivo</option>
                   </select>
                 </label>
-                <label className="flex cursor-pointer flex-col gap-1 text-sm">
-                  <span className="inline-flex items-center gap-1">
-                    <Upload className="h-3.5 w-3.5" />
-                    Archivo Excel
-                  </span>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls"
-                    className="max-w-[14rem] text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1"
+                <input
+                  ref={excelInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="sr-only"
+                  aria-hidden
+                  tabIndex={-1}
+                  onChange={(e) => void onExcelFileChosen(e.target.files?.[0])}
+                />
+                <div className="flex flex-wrap items-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
                     disabled={busy}
-                    onChange={(e) => void onPickExcel(e.target.files?.[0])}
-                  />
-                </label>
+                    onClick={() => excelInputRef.current?.click()}
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Elegir Excel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={
+                      busy ||
+                      !excelParsed?.length ||
+                      !excelToImport.length ||
+                      !!excelReadError
+                    }
+                    onClick={() => void onImportExcelToPlan()}
+                  >
+                    Importar al plan
+                  </Button>
+                  {excelFileLabel || excelParsed ? (
+                    <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={clearExcelSelection}>
+                      Quitar archivo
+                    </Button>
+                  ) : null}
+                </div>
               </div>
+              {excelFileLabel ? (
+                <p className="text-sm text-muted-foreground">
+                  Archivo: <span className="font-medium text-foreground">{excelFileLabel}</span>
+                </p>
+              ) : null}
+              {excelReadError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {excelReadError}
+                </p>
+              ) : null}
+              {excelParsed?.length ? (
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                  {importScope === "current" ? (
+                    excelToImport.length ? (
+                      <p>
+                        Listo para importar la semana <span className="font-mono font-medium">{weekId}</span>:{" "}
+                        {excelToImport[0]?.rows.length ?? 0} bloque(s) de texto (hoja “
+                        {excelToImport[0]?.sheetName}”).
+                      </p>
+                    ) : (
+                      <p className="text-amber-700 dark:text-amber-500">
+                        Ninguna hoja del archivo coincide con la semana <span className="font-mono">{weekId}</span>.
+                        Cambiá el calendario, usá “Todas las semanas del archivo”, o revisá que la fecha del lunes en el
+                        Excel corresponda a esa semana ISO.
+                      </p>
+                    )
+                  ) : (
+                    <p>
+                      Se importarán <span className="font-medium">{excelToImport.length}</span> semana(s) del archivo:{" "}
+                      {excelToImport.map((p) => `${p.weekId} (${p.rows.length})`).join(", ")}.
+                    </p>
+                  )}
+                </div>
+              ) : null}
 
               <div className="border-t border-border pt-4">
                 <p className="mb-2 text-sm font-medium">Carga manual</p>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={manualFuente === "periodo" ? "secondary" : "outline"}
+                    onClick={() => setManualFuente("periodo")}
+                  >
+                    Avisos del período (M/T)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={manualFuente === "sa" ? "secondary" : "outline"}
+                    onClick={() => setManualFuente("sa")}
+                  >
+                    Semestrales / anuales (urgentes)
+                  </Button>
+                </div>
+                {manualFuente === "periodo" ? (
+                  <div className="mb-4 max-h-48 overflow-y-auto rounded-md border border-border bg-muted/20 p-2 text-xs">
+                    {mtLoading ? (
+                      <p className="text-muted-foreground">Cargando avisos M/T…</p>
+                    ) : avisosMT.length === 0 ? (
+                      <p className="text-muted-foreground">Sin avisos mensuales/trimestrales en este centro.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {avisosMT.slice(0, 60).map((a) => (
+                          <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-0.5">
+                            <span className="min-w-0">
+                              <span className="font-mono">{a.n_aviso}</span> ·{" "}
+                              <span className="text-muted-foreground">{(a.texto_corto ?? "").slice(0, 72)}</span>
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 shrink-0 text-xs"
+                              disabled={busy}
+                              onClick={() => aplicarAvisoMTaManual(a)}
+                            >
+                              Usar en texto
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mb-4 max-h-48 overflow-y-auto rounded-md border border-border bg-muted/20 p-2 text-xs">
+                    {saVLoading ? (
+                      <p className="text-muted-foreground">Cargando S/A…</p>
+                    ) : saUrgentes.length === 0 ? (
+                      <p className="text-muted-foreground">No hay S/A vencidos, próximos o sin historial.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {saUrgentes.map((a) => (
+                          <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-0.5">
+                            <span className="min-w-0">
+                              <span className="font-mono">{a.n_aviso}</span> ·{" "}
+                              <span className="text-muted-foreground">{(a.texto_corto ?? "").slice(0, 56)}</span>
+                              {a.estado_vencimiento_live === "vencido" ? (
+                                <span className="ml-1 text-destructive">· vencido</span>
+                              ) : null}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 shrink-0 text-xs"
+                              disabled={busy || !puedePublicarAvisoSa}
+                              onClick={() => void onAddSaToProgramaPublicado(a.id)}
+                            >
+                              A la grilla
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="mt-2 text-[0.65rem] leading-snug text-muted-foreground">
+                      Usa el día seleccionado arriba y la semana <span className="font-mono">{weekId}</span>. También
+                      podés armar el detalle en{" "}
+                      <Link className="text-primary underline" href="/programa/vencimientos">
+                        Vencimientos S/A
+                      </Link>
+                      .
+                    </p>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-3">
                   <label className="flex min-w-[9rem] flex-1 flex-col gap-1 text-sm">
                     Localidad

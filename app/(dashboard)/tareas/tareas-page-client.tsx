@@ -152,7 +152,7 @@ const STATUS_FILTERS: { id: WorkOrderVistaStatus | "ALL"; label: string }[] = [
 export function TareasPageClient() {
   const { user, profile } = useAuth();
   const { puede } = usePermisos();
-  const centro = profile?.centro ?? DEFAULT_CENTRO;
+  const centro = (profile?.centro?.trim() || DEFAULT_CENTRO).trim();
   const { config: centroCfg } = useCentroConfigLive(centro);
   const tabMeta = useMemo(() => {
     const base = centroCfg.especialidades_activas.map((id) => ({
@@ -194,8 +194,8 @@ export function TareasPageClient() {
   return (
     <div className="space-y-4 pb-24">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Tareas</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">Órdenes de trabajo por especialidad · {centro}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Órdenes de trabajo</h1>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">Por especialidad · {centro}</p>
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">

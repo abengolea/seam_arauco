@@ -54,8 +54,13 @@ function roleBadgeClass(rol: UserRole): string {
   return "bg-zinc-500/15 text-zinc-800 dark:text-zinc-200";
 }
 
-export function GestionUsuariosClient() {
-  const { profile } = useAuth();
+type GestionUsuariosClientProps = {
+  /** Si true, se muestra dentro de Configuración general (sin botón Volver ni título principal duplicado). */
+  embedded?: boolean;
+};
+
+export function GestionUsuariosClient({ embedded = false }: GestionUsuariosClientProps) {
+  const { profile, user, loading: authLoading } = useAuth();
   const viewerIsSuper = isSuperAdminRole(profile?.rol);
 
   const [rows, setRows] = useState<UserAdminRow[]>([]);
@@ -90,8 +95,17 @@ export function GestionUsuariosClient() {
   }, []);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (authLoading) return;
+    queueMicrotask(() => {
+      if (!user) {
+        setLoadingList(false);
+        setLoadError("No hay sesión");
+        setRows([]);
+        return;
+      }
+      void reload();
+    });
+  }, [authLoading, user, reload]);
 
   const assignableRoles: RolAssignable[] = useMemo(() => {
     return viewerIsSuper
@@ -161,7 +175,11 @@ export function GestionUsuariosClient() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Usuarios</h1>
+          {embedded ? (
+            <h2 className="text-lg font-semibold tracking-tight">Usuarios</h2>
+          ) : (
+            <h1 className="text-2xl font-semibold tracking-tight">Usuarios</h1>
+          )}
           <p className="text-sm text-muted">
             Administración de cuentas —{" "}
             <RolGuard minimo="superadmin" fallback={<span>visible según tu centro.</span>}>
@@ -169,9 +187,11 @@ export function GestionUsuariosClient() {
             </RolGuard>
           </p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/superadmin">Volver</Link>
-        </Button>
+        {embedded ? null : (
+          <Button asChild variant="outline" size="sm">
+            <Link href="/superadmin">Volver</Link>
+          </Button>
+        )}
       </div>
 
       {msg ? <p className="text-sm text-red-600">{msg}</p> : null}

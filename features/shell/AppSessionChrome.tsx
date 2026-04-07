@@ -41,16 +41,19 @@ export function AppSessionChrome() {
   }
 
   return (
-    <div className="ml-auto flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-2">
+    <div className="flex max-w-full flex-nowrap items-center justify-end gap-1.5 sm:gap-2">
       {!hideAuth && user ? <NotificacionesBell /> : null}
+      <AppHeaderAuth />
       {showPushBanner ? (
-        <div className="order-first flex max-w-sm flex-wrap items-center justify-end gap-2 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 sm:order-none sm:max-w-none">
-          <p className="text-[11px] text-header-muted">¿Recibir notificaciones de eventos?</p>
+        <div className="flex max-w-[11rem] items-center gap-1 rounded-md border border-white/15 bg-white/5 px-1.5 py-1 sm:max-w-none sm:gap-1.5 sm:px-2">
+          <p className="hidden text-[11px] leading-tight text-header-muted sm:inline">
+            ¿Notificaciones push?
+          </p>
           <Button
             type="button"
             size="sm"
             variant="secondary"
-            className="h-7 text-[11px]"
+            className="h-7 shrink-0 px-2 text-[10px] sm:text-[11px]"
             onClick={() => void onActivarPush()}
           >
             Activar
@@ -59,14 +62,13 @@ export function AppSessionChrome() {
             type="button"
             size="sm"
             variant="ghost"
-            className="h-7 text-[11px] text-header-muted hover:text-header-fg"
+            className="h-7 shrink-0 px-2 text-[10px] text-header-muted hover:text-header-fg sm:text-[11px]"
             onClick={() => void onMasTarde()}
           >
             Más tarde
           </Button>
         </div>
       ) : null}
-      <AppHeaderAuth />
     </div>
   );
 }

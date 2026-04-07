@@ -1,7 +1,32 @@
 import { getAdminDb } from "@/firebase/firebaseAdmin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
-import type { ProgramaSemana, WeeklyPlanRow, WeeklyScheduleSlot } from "@/modules/scheduling/types";
-import { FieldValue } from "firebase-admin/firestore";
+import { parseIsoWeekToBounds } from "@/modules/scheduling/iso-week";
+import type {
+  AvisoSlot,
+  DiaSemanaPrograma,
+  EspecialidadPrograma,
+  ProgramaSemana,
+  SlotSemanal,
+  WeeklyPlanRow,
+  WeeklyScheduleSlot,
+} from "@/modules/scheduling/types";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
+
+const DIA_PROGRAMA_OFFSET: Record<DiaSemanaPrograma, number> = {
+  lunes: 0,
+  martes: 1,
+  miercoles: 2,
+  jueves: 3,
+  viernes: 4,
+  sabado: 5,
+};
+
+function fechaBaseSlotSemanal(weekStart: Date, dia: DiaSemanaPrograma): Date {
+  const d = new Date(weekStart);
+  d.setDate(d.getDate() + DIA_PROGRAMA_OFFSET[dia]);
+  d.setHours(12, 0, 0, 0);
+  return d;
+}
 
 const SLOTS_SUB = "slots";
 const PLAN_ROWS_SUB = "plan_rows";
@@ -209,4 +234,70 @@ export async function upsertProgramaSemana(data: ProgramaSemana): Promise<void> 
   } else {
     await ref.set(fields, { merge: true });
   }
+}
+
+/**
+ * Inserta un aviso en la grilla publicada `programa_semanal` (slot = localidad × día × especialidad).
+ * Si el documento de la semana no existe, se crea con metadatos mínimos.
+ */
+export async function appendAvisoToProgramaSemanaAdmin(input: {
+  semanaId: string;
+  centro: string;
+  dia: DiaSemanaPrograma;
+  especialidad: EspecialidadPrograma;
+  localidad: string;
+  nuevoAviso: AvisoSlot;
+}): Promise<void> {
+  const db = getAdminDb();
+  const ref = db.collection(COLLECTIONS.programa_semanal).doc(input.semanaId);
+  const snap = await ref.get();
+  const { start, end } = parseIsoWeekToBounds(input.semanaId);
+  const loc = input.localidad.trim() || "—";
+  const fecha = Timestamp.fromDate(fechaBaseSlotSemanal(start, input.dia));
+
+  const raw = snap.exists ? (snap.data() as Record<string, unknown>) : {};
+  let slots: SlotSemanal[] = ((raw.slots as SlotSemanal[] | undefined) ?? []) as SlotSemanal[];
+
+  const idx = slots.findIndex(
+    (s) => s.localidad === loc && s.dia === input.dia && s.especialidad === input.especialidad,
+  );
+
+  if (idx >= 0) {
+    const cur = slots[idx]!;
+    const avisos = [...(cur.avisos ?? [])];
+    if (avisos.some((a) => a.numero === input.nuevoAviso.numero)) {
+      return;
+    }
+    avisos.push(input.nuevoAviso);
+    const next = [...slots];
+    next[idx] = {
+      ...cur,
+      avisos,
+      fecha: (cur.fecha ?? fecha) as SlotSemanal["fecha"],
+    };
+    slots = next;
+  } else {
+    const nuevo: SlotSemanal = {
+      localidad: loc,
+      especialidad: input.especialidad,
+      dia: input.dia,
+      fecha: fecha as unknown as SlotSemanal["fecha"],
+      avisos: [input.nuevoAviso],
+    };
+    slots = [...slots, nuevo];
+  }
+
+  const semanaLabel = `${input.semanaId.replace("-W", " · W")}`;
+  const patch: Record<string, unknown> = {
+    slots,
+  };
+  if (!snap.exists) {
+    patch.semanaLabel = semanaLabel;
+    patch.fechaInicio = Timestamp.fromDate(start);
+    patch.fechaFin = Timestamp.fromDate(end);
+    patch.centro = input.centro;
+    patch.createdAt = FieldValue.serverTimestamp();
+  }
+
+  await ref.set(patch, { merge: true });
 }

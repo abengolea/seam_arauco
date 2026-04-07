@@ -1,8 +1,10 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Suscripción Firestore tras auth lista (evita listener sin sesión). */
 "use client";
 
 import { getFirebaseDb } from "@/firebase/firebaseClient";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import type { PlanillaTemplate } from "@/lib/firestore/types";
+import { useAuthUser } from "@/modules/users/hooks";
 import { collection, onSnapshot, type Unsubscribe } from "firebase/firestore";
 import { useEffect, useState } from "react";
 
@@ -12,13 +14,28 @@ export function usePlanillaTemplatesLive(): {
   loading: boolean;
   error: Error | null;
 } {
+  const { user, loading: authLoading } = useAuthUser();
   const [templates, setTemplates] = useState<PlanillaTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+    if (!user) {
+      setTemplates([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const db = getFirebaseDb();
     const col = collection(db, COLLECTIONS.planilla_templates);
+    setLoading(true);
+    setError(null);
+
     const unsub: Unsubscribe = onSnapshot(
       col,
       (snap) => {
@@ -34,6 +51,7 @@ export function usePlanillaTemplatesLive(): {
         });
         setTemplates(rows);
         setLoading(false);
+        setError(null);
       },
       (err) => {
         setError(err);
@@ -41,7 +59,7 @@ export function usePlanillaTemplatesLive(): {
       },
     );
     return () => unsub();
-  }, []);
+  }, [authLoading, user]);
 
   return { templates, loading, error };
 }

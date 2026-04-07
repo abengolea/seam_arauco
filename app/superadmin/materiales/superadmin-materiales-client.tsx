@@ -9,6 +9,7 @@ import { registrarEntradaStock } from "@/app/actions/materials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -21,7 +22,12 @@ import { usePermisos } from "@/lib/permisos/usePermisos";
 import { isSuperAdminRole } from "@/modules/users/roles";
 import { useState } from "react";
 
-export function SuperadminMaterialesClient() {
+type SuperadminMaterialesClientProps = {
+  /** Dentro de Configuración general: sin título principal duplicado. */
+  embedded?: boolean;
+};
+
+export function SuperadminMaterialesClient({ embedded = false }: SuperadminMaterialesClientProps) {
   const { puede } = usePermisos();
   const searchParams = useSearchParams();
   const filter = searchParams.get("filter");
@@ -172,17 +178,19 @@ export function SuperadminMaterialesClient() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8 py-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-amber-950 dark:text-amber-100">
-          Materiales e inventario
-        </h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          {canReviewIa
-            ? "Revisión de mapeo IA, catálogo y movimientos de stock."
-            : "Entradas de stock y movimientos (supervisor)."}
-        </p>
-      </div>
+    <div className={cn("mx-auto max-w-5xl space-y-8", embedded ? "py-0" : "py-4")}>
+      {embedded ? null : (
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-amber-950 dark:text-amber-100">
+            Materiales e inventario
+          </h1>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            {canReviewIa
+              ? "Revisión de mapeo IA, catálogo y movimientos de stock."
+              : "Entradas de stock y movimientos (supervisor)."}
+          </p>
+        </div>
+      )}
 
       {bajoStockDestacado ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
@@ -487,7 +495,7 @@ export function SuperadminMaterialesClient() {
       <p className="text-center text-xs text-zinc-500">
         {canReviewIa ? (
           <Link href="/superadmin" className="underline">
-            Volver a superadmin
+            Volver a configuración general
           </Link>
         ) : (
           <Link href="/dashboard" className="underline">
