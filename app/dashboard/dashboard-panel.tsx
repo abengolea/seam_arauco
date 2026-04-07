@@ -6,8 +6,11 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { KNOWN_CENTROS } from "@/lib/config/app-config";
 import { cumplimientoPreventivos, correctivosPorEquipo } from "@/services/kpi";
+import { usePreventivosSaVencimientoKpis } from "@/modules/scheduling/hooks";
 import { useMaterialsCatalogLive } from "@/modules/materials/hooks";
 import { useTodaysWorkOrdersCached } from "@/modules/work-orders/hooks";
+import { useAuthUser, useUserProfile } from "@/modules/users/hooks";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -83,18 +86,54 @@ function StatCard({
 }
 
 export function DashboardPanel() {
-  const { rol } = usePermisos();
+  const { rol, puede } = usePermisos();
   const router = useRouter();
+  const { user } = useAuthUser();
+  const { profile, loading: profileLoading } = useUserProfile(user?.uid);
   useEffect(() => {
     if (rol === "cliente_arauco") router.replace("/cliente");
   }, [rol, router]);
 
-  /** `null` = todos los centros (vista general). */
+  /** Solo superadmin: `null` = todos los centros. Resto de roles: siempre el centro del perfil. */
   const [centroFiltro, setCentroFiltro] = useState<string | null>(null);
-  const { rows, loading, error } = useTodaysWorkOrdersCached(centroFiltro);
-  const { itemsBajoStock } = useMaterialsCatalogLive(600);
+  const centroPerfil = profile?.centro?.trim() || null;
+  const centroParaOt = useMemo(() => {
+    if (rol === "tecnico") return centroPerfil;
+    if (rol === "superadmin") return centroFiltro;
+    return centroPerfil;
+  }, [rol, centroPerfil, centroFiltro]);
+
+  const { rows, loading, error } = useTodaysWorkOrdersCached(centroParaOt, {
+    uid: user?.uid ?? "",
+    rol: profile?.rol ?? "tecnico",
+  });
+  const { itemsBajoStock: itemsBajoStockRaw, error: materialsCatalogError } = useMaterialsCatalogLive(600);
+  const itemsBajoStock = useMemo(() => {
+    if (rol === "superadmin" || !centroPerfil) return itemsBajoStockRaw;
+    return itemsBajoStockRaw.filter((it) => {
+      const c = it.centro_almacen?.trim();
+      return !c || c === centroPerfil;
+    });
+  }, [rol, centroPerfil, itemsBajoStockRaw]);
+  const verCardMaterialesBajoStock = puede("materiales:ingresar_stock") || puede("materiales:ver_reporting");
+
+  const centroKpi = rol === "superadmin" ? centroFiltro ?? "" : profile?.centro ?? "";
+  const verTodosSa = rol === "superadmin" && centroFiltro === null;
+  const {
+    vencidos,
+    proximos,
+    alDia,
+    loading: saKpiLoading,
+    error: saKpiError,
+  } = usePreventivosSaVencimientoKpis({
+    authUid: user?.uid,
+    centro: verTodosSa ? undefined : centroKpi || profile?.centro,
+    verTodosLosCentros: verTodosSa,
+  });
 
   const kpi = useMemo(() => cumplimientoPreventivos(rows), [rows]);
+
+  const firestoreError = error ?? saKpiError ?? materialsCatalogError;
 
   const porEstado = useMemo(() => {
     const m = new Map<string, number>();
@@ -126,46 +165,122 @@ export function DashboardPanel() {
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-muted">Indicadores</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            Panel operativo
+            {rol === "tecnico" ? "Tu panel" : "Panel operativo"}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
-            Vista general de la operación. Podés acotar por dependencia o centro; los gráficos usan una muestra
-            de órdenes recientes desde Firestore.
+            {rol === "tecnico" ? (
+              <>
+                Tus órdenes asignadas y vencimientos S/A del centro{" "}
+                <span className="font-mono text-foreground">{profile?.centro ?? "—"}</span>.
+              </>
+            ) : rol === "superadmin" ? (
+              <>
+                Vista general de la operación. Podés consolidar todos los centros o filtrar por dependencia; los
+                gráficos usan una muestra de órdenes recientes desde Firestore.
+              </>
+            ) : (
+              <>
+                Indicadores de tu planta ({centroPerfil ?? "—"}). Los gráficos usan una muestra de órdenes recientes
+                del centro asignado a tu perfil.
+              </>
+            )}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col gap-1.5 sm:items-end">
-          <label htmlFor="dashboard-centro" className="text-xs font-semibold uppercase tracking-wide text-muted">
-            Centro / dependencia
-          </label>
-          <select
-            id="dashboard-centro"
-            value={centroFiltro ?? ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              setCentroFiltro(v === "" ? null : v);
-            }}
-            className="flex h-10 w-full min-w-[220px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm transition-[border-color,box-shadow] duration-150 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 sm:w-auto"
-          >
-            <option value="">Todos los centros</option>
-            {KNOWN_CENTROS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
+        {rol === "superadmin" ? (
+          <div className="flex shrink-0 flex-col gap-1.5 sm:items-end">
+            <label htmlFor="dashboard-centro" className="text-xs font-semibold uppercase tracking-wide text-muted">
+              Centro / dependencia
+            </label>
+            <select
+              id="dashboard-centro"
+              value={centroFiltro ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCentroFiltro(v === "" ? null : v);
+              }}
+              className="flex h-10 w-full min-w-[220px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm transition-[border-color,box-shadow] duration-150 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 sm:w-auto"
+            >
+              <option value="">Todos los centros</option>
+              {KNOWN_CENTROS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </header>
 
-      {loading ? (
-        <p className="text-sm font-medium text-muted">Cargando órdenes recientes…</p>
+      {loading || profileLoading ? (
+        <p className="text-sm font-medium text-muted">
+          {profileLoading ? "Cargando tu perfil y órdenes…" : "Cargando órdenes recientes…"}
+        </p>
       ) : null}
-      {error ? (
+      {firestoreError ? (
         <p className="rounded-lg border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
-          {error.message}
+          {firestoreError.message}
         </p>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {!profileLoading && user && !profile ? (
+        <p
+          className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-100"
+          role="status"
+        >
+          No hay documento en <span className="font-mono">users</span> para tu cuenta: el sistema asume rol técnico
+          sin centro hasta que exista el perfil. Contactá administración o revisá reglas Firestore / base de datos
+          correcta.
+        </p>
+      ) : null}
+
+      {puede("programa:ver") ? (
+        <section aria-label="Preventivos semestrales y anuales" className="space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">Preventivos S/A</h2>
+          {saKpiLoading ? (
+            <p className="text-xs text-muted-foreground">Cargando vencimientos…</p>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Link
+                href="/programa/vencimientos?filter=vencido"
+                className="block rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-brand/40"
+              >
+                <StatCard
+                  label="Vencidos"
+                  hint="Semestrales/anuales con fecha de vencimiento superada"
+                  accent="brand"
+                >
+                  <span className="text-destructive">{vencidos}</span>
+                  <span className="ml-2 text-sm font-normal text-muted-foreground"> avisos</span>
+                </StatCard>
+              </Link>
+              <Link
+                href="/programa/vencimientos?filter=proximo"
+                className="block rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-brand/40"
+              >
+                <StatCard
+                  label="Próximos (30 días)"
+                  hint="Vencen en el mes próximo"
+                  accent="neutral"
+                >
+                  <span className="text-amber-700 dark:text-amber-400">{proximos}</span>
+                  <span className="ml-2 text-sm font-normal text-muted-foreground"> avisos</span>
+                </StatCard>
+              </Link>
+              <StatCard label="Al día" hint="Estado OK según vencimiento calculado" accent="neutral">
+                <span className="text-emerald-700 dark:text-emerald-400">{alDia}</span>
+                <span className="ml-2 text-sm font-normal text-muted-foreground"> avisos</span>
+              </StatCard>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div
+        className={cn(
+          "grid gap-4 sm:grid-cols-2",
+          verCardMaterialesBajoStock ? "lg:grid-cols-3" : "lg:grid-cols-2",
+        )}
+      >
         <StatCard label="Preventivos" hint="Programados vs cerrados a tiempo (ventana ±7 días)" accent="brand">
           <>
             <span className="text-accent-lime">{kpi.cerradosATiempo}</span>
@@ -177,26 +292,33 @@ export function DashboardPanel() {
         <StatCard
           label="Órdenes en muestra"
           hint={
-            centroFiltro === null
-              ? "Hasta 80 OT recientes (todos los centros)"
-              : `Hasta 80 OT recientes filtradas por ${centroFiltro}`
+            rol === "tecnico"
+              ? "Hasta 80 OT recientes que tenés asignadas en tu centro"
+              : rol === "superadmin" && centroFiltro === null
+                ? "Hasta 80 OT recientes (todos los centros)"
+                : `Hasta 80 OT recientes del centro ${rol === "superadmin" ? (centroFiltro ?? "—") : (centroPerfil ?? "—")}`
           }
           accent="neutral"
         >
           <>{rows.length} registros</>
         </StatCard>
-        <Link href="/superadmin/materiales?filter=bajo_stock" className="block rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-brand/40">
-          <StatCard
-            label="Materiales con stock bajo"
-            hint="Catálogo con stock_disponible ≤ stock_minimo"
-            accent={itemsBajoStock.length > 0 ? "brand" : "neutral"}
+        {verCardMaterialesBajoStock ? (
+          <Link
+            href="/superadmin/materiales?filter=bajo_stock"
+            className="block rounded-xl outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-brand/40"
           >
-            <span className={itemsBajoStock.length > 0 ? "text-destructive" : undefined}>
-              {itemsBajoStock.length}
-            </span>
-            <span className="ml-2 text-sm font-normal text-muted"> ítems</span>
-          </StatCard>
-        </Link>
+            <StatCard
+              label="Materiales con stock bajo"
+              hint="Catálogo con stock_disponible ≤ stock_minimo"
+              accent={itemsBajoStock.length > 0 ? "brand" : "neutral"}
+            >
+              <span className={itemsBajoStock.length > 0 ? "text-destructive" : undefined}>
+                {itemsBajoStock.length}
+              </span>
+              <span className="ml-2 text-sm font-normal text-muted"> ítems</span>
+            </StatCard>
+          </Link>
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

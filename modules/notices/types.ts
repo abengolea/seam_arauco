@@ -43,9 +43,22 @@ export type Aviso = {
   frecuencia_plan_mtsa?: "M" | "T" | "S" | "A";
   /** Estado legible en planillas tipo MENSUALES (p. ej. PDTE). */
   estado_planilla?: string;
+
+  /** Trazabilidad de ejecución y vencimientos (M/T/S/A). */
+  ultima_ejecucion_ot_id?: string;
+  ultima_ejecucion_fecha?: Timestamp;
+  proximo_vencimiento?: Timestamp;
+  /** Diferencia en días respecto a hoy (actualizado en cierre/cron). */
+  dias_para_vencimiento?: number;
+  estado_vencimiento?: "ok" | "proximo" | "vencido";
+  /** ISO semana en la que el aviso fue incluido en el programa publicado (evitar duplicados). */
+  incluido_en_semana?: string;
+
   created_at: Timestamp;
   updated_at: Timestamp;
 };
+
+export type EstadoVencimientoAviso = NonNullable<Aviso["estado_vencimiento"]>;
 
 export type AvisoCreateInput = Omit<Aviso, "id" | "created_at" | "updated_at" | "estado"> & {
   estado?: EstadoAviso;

@@ -26,7 +26,17 @@ import {
   updateChecklistItemService,
   updateWorkOrderInformeText,
 } from "@/modules/work-orders/service";
-import { getAvisoById } from "@/modules/notices/repository";
+import {
+  estadoVencimientoDesdeDias,
+  avisoFirestoreDocId,
+  diasParaVencimientoDesdeProximo,
+  diasPorMtsa,
+  inferMtsaDesdeAviso,
+  proximoVencimientoDesdeFecha,
+} from "@/lib/vencimientos";
+import { getPlanMantenimientoAdmin, updatePlanMantenimientoAfterClose } from "@/lib/plan-mantenimiento/admin";
+import { getAvisoById, updateAviso } from "@/modules/notices/repository";
+import type { Aviso } from "@/modules/notices/types";
 import { getWorkOrderById } from "@/modules/work-orders/repository";
 import type { WorkOrderVistaStatus } from "@/modules/work-orders/types";
 import { Timestamp } from "firebase-admin/firestore";
@@ -359,6 +369,38 @@ export async function closeWorkOrder(
     });
     const wo = await getWorkOrderById(parsed.workOrderId);
     if (wo) {
+      const avisoKey = wo.aviso_id?.trim() || (wo.aviso_numero ? avisoFirestoreDocId(wo.aviso_numero) : "");
+      const aviso = avisoKey ? await getAvisoById(avisoKey) : null;
+      if (avisoKey && aviso) {
+        const mtsa = inferMtsaDesdeAviso(aviso);
+        const ahora = new Date();
+        const proximo = proximoVencimientoDesdeFecha(ahora, mtsa);
+        const dias = diasParaVencimientoDesdeProximo(proximo, ahora);
+        await updateAviso(aviso.id, {
+          ultima_ejecucion_ot_id: wo.id,
+          ultima_ejecucion_fecha: Timestamp.now() as unknown as Aviso["ultima_ejecucion_fecha"],
+          proximo_vencimiento: Timestamp.fromDate(proximo) as unknown as Aviso["proximo_vencimiento"],
+          dias_para_vencimiento: dias,
+          estado_vencimiento: estadoVencimientoDesdeDias(dias),
+        });
+      }
+      const planKey = (wo.plan_id?.trim() || avisoKey).trim();
+      if (planKey) {
+        const plan = await getPlanMantenimientoAdmin(planKey);
+        if (plan) {
+          const ciclo =
+            typeof plan.dias_ciclo === "number" && plan.dias_ciclo > 0
+              ? plan.dias_ciclo
+              : aviso
+                ? diasPorMtsa(inferMtsaDesdeAviso(aviso))
+                : 30;
+          await updatePlanMantenimientoAfterClose({
+            planId: plan.id,
+            otId: wo.id,
+            diasCiclo: ciclo,
+          });
+        }
+      }
       const dest = [
         ...(await destinatariosClienteArauco(wo.centro)),
         ...(await destinatariosSupervisoresAdmin(wo.centro)),

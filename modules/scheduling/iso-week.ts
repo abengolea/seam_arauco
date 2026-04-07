@@ -1,4 +1,4 @@
-import { addWeeks, setISOWeek, startOfISOWeek } from "date-fns";
+import { addWeeks, endOfISOWeek, setISOWeek, startOfISOWeek } from "date-fns";
 
 /** Semana ISO `YYYY-Www` a partir de una fecha (UTC, coherente con buckets por semana). */
 export function getIsoWeekId(d: Date): string {
@@ -19,4 +19,18 @@ export function shiftIsoWeekId(weekId: string, deltaWeeks: number): string {
   const week = Number(m[2]);
   const inWeek = startOfISOWeek(setISOWeek(new Date(year, 0, 4), week));
   return getIsoWeekId(addWeeks(inWeek, deltaWeeks));
+}
+
+/** Inicio (lunes) y fin (domingo) de la semana ISO, en tiempo local (coherente con `shiftIsoWeekId`). */
+export function parseIsoWeekToBounds(weekId: string): { start: Date; end: Date } {
+  const m = /^(\d{4})-W(\d{2})$/.exec(weekId.trim());
+  if (!m) {
+    const n = new Date();
+    const s = startOfISOWeek(n);
+    return { start: s, end: endOfISOWeek(s) };
+  }
+  const year = Number(m[1]);
+  const week = Number(m[2]);
+  const start = startOfISOWeek(setISOWeek(new Date(year, 0, 4), week));
+  return { start, end: endOfISOWeek(start) };
 }

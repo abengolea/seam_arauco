@@ -20,6 +20,10 @@ export type AvisoSlot = {
   equipoCodigo?: string;
   /** Ubicación técnica / local (opcional en Firestore). */
   ubicacion?: string;
+  /** Id documento `avisos` / plan (preventivos desde propuesta). Solo servidor / generación OT. */
+  avisoFirestoreId?: string;
+  /** OT existente (correctivos en propuesta). */
+  workOrderId?: string;
 };
 
 export type SlotSemanal = {
@@ -29,9 +33,13 @@ export type SlotSemanal = {
   fecha: Timestamp;
   avisos: AvisoSlot[];
   notas?: string;
+  tecnicoSugeridoUid?: string;
+  tecnicoSugeridoNombre?: string;
 };
 
-/** Documento raíz en `programa_semanal/{id}` (id ISO, ej. 2026-W14). */
+export type ProgramaSemanaStatus = "borrador" | "publicado" | "con_ots" | "cerrada";
+
+/** Documento raíz en `programa_semanal/{id}` (id típico `centro_YYYY-Www`, alineado con `propuestas_semana`). */
 export type ProgramaSemana = {
   id: string;
   semanaLabel: string;
@@ -40,6 +48,11 @@ export type ProgramaSemana = {
   centro: string;
   slots: SlotSemanal[];
   createdAt: Timestamp;
+  status?: ProgramaSemanaStatus;
+  propuestaOrigenId?: string;
+  generadoAutomaticamente?: boolean;
+  aprobadoAutomaticamente?: boolean;
+  updated_at?: Timestamp;
 };
 
 /** Programa semanal — documentos en `weekly_schedule` (id = YYYY-Www, ej. 2026-W14) */

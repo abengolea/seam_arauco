@@ -17,7 +17,7 @@ import type {
 } from "@/modules/scheduling/types";
 import { usePermisos } from "@/lib/permisos/usePermisos";
 import { useAuth } from "@/modules/users/hooks";
-import { X } from "lucide-react";
+import { Info, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -104,6 +104,87 @@ function celdasPorLocalidad(
 }
 
 type DrawerState = { aviso: AvisoSlot; slot: SlotSemanal } | null;
+
+function SelectorVistaPrograma({
+  vistaOperativa,
+  onElegirPublicada,
+  onElegirOperativa,
+}: {
+  vistaOperativa: boolean;
+  onElegirPublicada: () => void;
+  onElegirOperativa: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Qué querés hacer</p>
+      <div className="flex min-h-[4.25rem] flex-col gap-1 rounded-lg border border-border bg-muted/30 p-1 sm:flex-row sm:items-stretch">
+        <Button
+          type="button"
+          variant={vistaOperativa ? "ghost" : "secondary"}
+          size="sm"
+          className={cn(
+            "h-auto flex-1 flex-col items-start gap-0.5 whitespace-normal rounded-md py-2.5 text-left",
+            !vistaOperativa && "shadow-sm",
+          )}
+          onClick={onElegirPublicada}
+        >
+          <span className="text-sm font-medium">Ver plan publicado</span>
+          <span className="text-xs font-normal leading-snug text-muted-foreground">
+            Grilla de la semana (avisos por localidad y día). Solo lectura.
+          </span>
+        </Button>
+        <Button
+          type="button"
+          variant={vistaOperativa ? "secondary" : "ghost"}
+          size="sm"
+          className={cn(
+            "h-auto flex-1 flex-col items-start gap-0.5 whitespace-normal rounded-md py-2.5 text-left",
+            vistaOperativa && "shadow-sm",
+          )}
+          onClick={onElegirOperativa}
+        >
+          <span className="text-sm font-medium">Armar o cargar el plan</span>
+          <span className="text-xs font-normal leading-snug text-muted-foreground">
+            Excel, líneas de texto u órdenes de trabajo en el calendario semanal.
+          </span>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AvisoExplicacionVistaPublica() {
+  return (
+    <div className="flex gap-3 rounded-xl border border-border bg-muted/25 px-3 py-3 text-sm sm:px-4">
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      <div className="min-w-0 space-y-2 text-muted-foreground">
+        <p className="font-medium text-foreground">Cómo se usa esta pantalla</p>
+        <ul className="list-disc space-y-1.5 pl-4 leading-relaxed">
+          <li>
+            <span className="text-foreground">Ver plan publicado:</span> elegí la semana, aplicá filtros y recorré la
+            tabla localidad × día. Cada etiqueta es un aviso: clic o toque para ver descripción y datos.
+          </li>
+          <li>
+            <span className="text-foreground">Armar o cargar el plan:</span> pantalla de trabajo con semana (código
+            ISO), importación Excel, líneas de texto y OT colocadas por día y turno.
+          </li>
+        </ul>
+        <p className="text-xs leading-relaxed">
+          <span className="text-foreground">Importar Excel en Configuración de la empresa</span> carga avisos y el plan
+          maestro en Firestore, pero{" "}
+          <span className="text-foreground">no genera solo la grilla semanal de consulta</span>: para eso hay que armar
+          la semana y publicarla en{" "}
+          <span className="text-foreground">Armar o cargar el plan</span> (Excel de programa, texto u OT en el
+          calendario).
+        </p>
+        <p className="text-xs leading-relaxed">
+          Si el selector dice “Sin semanas”, todavía no hay un <span className="text-foreground">programa semanal
+          publicado</span> para este centro: entrá a <span className="text-foreground">Armar o cargar el plan</span>.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function AvisoDrawer({
   open,
@@ -205,18 +286,18 @@ export function ProgramaClient() {
 
   const { semanas, loading: semanasLoading, error: semanasError } = useSemanasDisponibles(centro, user?.uid);
 
-  function setVistaPublicada() {
+  const setVistaPublicada = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.delete("vista");
     const q = p.toString();
     router.replace(q ? `/programa?${q}` : "/programa");
-  }
+  }, [router, searchParams]);
 
-  function setVistaOperativa() {
+  const setVistaOperativa = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.set("vista", "operativo");
     router.replace(`/programa?${p.toString()}`);
-  }
+  }, [router, searchParams]);
 
   const [semanaIdElegida, setSemanaIdElegida] = useState<string | null>(null);
   const [filtroEsp, setFiltroEsp] = useState<FiltroEspecialidad>("todos");
@@ -259,11 +340,11 @@ export function ProgramaClient() {
   );
 
   const puedeCrearOt = puede("programa:crear_ot");
-  const esAdmin = puede("programa:editar");
+  const puedePlanOperativo = puede("programa:crear_ot") || puede("programa:editar");
 
   useEffect(() => {
-    if (esCliente && vistaOperativo) setVistaPublicada();
-  }, [esCliente, vistaOperativo]);
+    if (vistaOperativo && (esCliente || !puedePlanOperativo)) setVistaPublicada();
+  }, [esCliente, vistaOperativo, puedePlanOperativo, setVistaPublicada]);
 
   const cerrarDrawer = useCallback(() => setDrawer(null), []);
 
@@ -273,7 +354,7 @@ export function ProgramaClient() {
     return <p className="text-sm text-muted-foreground">Cargando sesión…</p>;
   }
 
-  if (vistaOperativo && !esCliente) {
+  if (vistaOperativo && !esCliente && puedePlanOperativo) {
     return (
       <div className="space-y-6">
         <header className="flex flex-col gap-3">
@@ -286,26 +367,15 @@ export function ProgramaClient() {
               </p>
             </div>
           </div>
-          <div className="inline-flex rounded-lg border border-border bg-muted/30 p-1">
-            <Button
-              type="button"
-              variant={vistaOperativo ? "ghost" : "secondary"}
-              size="sm"
-              className={cn(!vistaOperativo && "shadow-sm")}
-              onClick={setVistaPublicada}
-            >
-              Grilla publicada
-            </Button>
-            <Button
-              type="button"
-              variant={vistaOperativo ? "secondary" : "ghost"}
-              size="sm"
-              className={cn(vistaOperativo && "shadow-sm")}
-              onClick={setVistaOperativa}
-            >
-              OT, texto e importar Excel
-            </Button>
-          </div>
+          <SelectorVistaPrograma
+            vistaOperativa={vistaOperativo}
+            onElegirPublicada={setVistaPublicada}
+            onElegirOperativa={setVistaOperativa}
+          />
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Usá las flechas para la semana (código ISO, ej. 2026-W14). Más abajo: importar Excel, filas de texto o ubicar
+            una OT en un día y turno del calendario.
+          </p>
         </header>
         <ProgramaSemanalClient embedded />
       </div>
@@ -340,17 +410,30 @@ export function ProgramaClient() {
             </select>
           </label>
         </div>
-        {!esCliente ? (
-          <div className="inline-flex flex-wrap rounded-lg border border-border bg-muted/30 p-1">
-            <Button type="button" variant="secondary" size="sm" className="shadow-sm" onClick={setVistaPublicada}>
-              Grilla publicada
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={setVistaOperativa}>
-              OT, texto e importar Excel
-            </Button>
-          </div>
+        {!esCliente && puedePlanOperativo ? (
+          <>
+            <SelectorVistaPrograma
+              vistaOperativa={false}
+              onElegirPublicada={setVistaPublicada}
+              onElegirOperativa={setVistaOperativa}
+            />
+            <AvisoExplicacionVistaPublica />
+          </>
         ) : null}
       </header>
+
+      {puedeCrearOt && !esCliente ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/15 px-4 py-3 text-sm">
+          <p className="max-w-xl leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Propuesta del motor:</span> la corrida diaria puede generar
+            ítems en <span className="font-mono">propuestas_semana</span>. Revisalos y convertí en OTs reales cuando
+            corresponda.
+          </p>
+          <Button asChild variant="secondary" size="sm" className="shrink-0">
+            <Link href="/programa/aprobacion">Aprobar propuesta</Link>
+          </Button>
+        </div>
+      ) : null}
 
       {semanasError ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
@@ -358,21 +441,22 @@ export function ProgramaClient() {
           <p className="mt-1">{semanasError.message}</p>
           {(semanasError as { code?: string }).code === "permission-denied" ? (
             <p className="mt-2 text-foreground">
-              Comprobá que en Firebase estén desplegadas las reglas del repo (colección{" "}
-              <span className="font-mono">programa_semanal</span>, lectura para usuarios con sesión) y que exista tu
-              perfil en la colección <span className="font-mono">users</span> con rol válido.
-              {!esCliente ? (
+              Suele faltar permiso de lectura o un perfil incompleto en el proyecto. Si tenés acceso de administración,
+              comprobá reglas de Firestore y el documento de usuario. Detalle técnico: colección{" "}
+              <span className="font-mono">programa_semanal</span> y perfil en{" "}
+              <span className="font-mono">users</span>.
+              {!esCliente && puedePlanOperativo ? (
                 <>
                   {" "}
-                  Mientras tanto podés usar la pestaña{" "}
+                  Igual podés entrar a{" "}
                   <button
                     type="button"
                     className="font-medium text-primary underline underline-offset-2"
                     onClick={setVistaOperativa}
                   >
-                    OT, texto e importar Excel
+                    Armar o cargar el plan
                   </button>{" "}
-                  (plan en <span className="font-mono">weekly_schedule</span>).
+                  para trabajar con el calendario operativo.
                 </>
               ) : null}
             </p>
@@ -430,19 +514,37 @@ export function ProgramaClient() {
 
       {!semanas.length && !semanasLoading ? (
         <Card>
-          <CardContent className="space-y-3 pt-6 text-sm text-muted-foreground">
-            <p>No hay programas publicados en la grilla clásica (colección programa_semanal) para este centro.</p>
-            {!esCliente ? (
-              <p>
-                Para cargar el plan con Excel, texto manual u OT en calendario, abrí la pestaña{" "}
-                <button
-                  type="button"
-                  className="font-medium text-primary underline underline-offset-2"
-                  onClick={setVistaOperativa}
-                >
-                  OT, texto e importar Excel
-                </button>
-                .
+          <CardContent className="space-y-4 pt-6 text-sm">
+            <div>
+              <p className="font-medium text-foreground">No hay semanas para mostrar acá todavía</p>
+              <p className="mt-1.5 leading-relaxed text-muted-foreground">
+                Esta vista solo muestra semanas que ya están en <span className="font-mono text-xs">programa_semanal</span>{" "}
+                (plan publicado). Si ya importaste planillas en Configuración, eso incorpora avisos al maestro, pero no
+                crea automáticamente el calendario semanal de consulta: por eso el selector puede seguir en “Sin
+                semanas”.
+              </p>
+            </div>
+            {!esCliente && puedePlanOperativo ? (
+              <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 text-muted-foreground">
+                <p className="text-xs font-medium uppercase tracking-wide text-foreground">Próximo paso</p>
+                <p className="mt-2 leading-relaxed">
+                  Andá a{" "}
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline underline-offset-2"
+                    onClick={setVistaOperativa}
+                  >
+                    Armar o cargar el plan
+                  </button>
+                  : ahí usás el Excel del <span className="font-medium text-foreground">programa por semana</span> (no
+                  el de Configuración), pegás texto o colocás OT; luego publicás. Recién entonces las semanas van a
+                  aparecer en el selector de esta grilla.
+                </p>
+              </div>
+            ) : !esCliente ? (
+              <p className="rounded-lg border border-border bg-muted/15 px-3 py-3 text-sm leading-relaxed text-muted-foreground">
+                Cuando exista un plan publicado para tu centro, vas a ver las semanas disponibles en el selector de
+                arriba. Si necesitás que carguen el calendario o el Excel, contactá a supervisión o administración.
               </p>
             ) : null}
           </CardContent>
@@ -452,10 +554,14 @@ export function ProgramaClient() {
       {semanaId && !programaLoading && !programa ? (
         <Card>
           <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">Sin programa cargado para esta semana.</p>
-            {esAdmin ? (
+            <p className="text-sm text-muted-foreground">
+              {puedePlanOperativo
+                ? "Esta semana está en el listado, pero no hay datos en la grilla de consulta. Podés cargarlos desde la vista de armado."
+                : "Esta semana está en el listado, pero aún no hay datos publicados en la grilla de consulta. Si corresponde, pedí a supervisión o administración que publiquen el plan."}
+            </p>
+            {puedePlanOperativo ? (
               <Button variant="outline" type="button" onClick={setVistaOperativa}>
-                Cargar / importar Excel
+                Ir a armar o importar plan
               </Button>
             ) : null}
           </CardContent>

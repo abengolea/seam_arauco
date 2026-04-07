@@ -124,6 +124,7 @@ export function SuperadminCentroFlagsPanel() {
         modulos: { ...config.modulos },
         especialidades_activas: [...config.especialidades_activas],
         requiere_firma_usuario_cierre: config.requiere_firma_usuario_cierre,
+        auto_publicar_propuesta: config.auto_publicar_propuesta,
       };
       await setDoc(
         ref,
@@ -212,7 +213,7 @@ export function SuperadminCentroFlagsPanel() {
 
         <div className="space-y-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Especialidades activas</p>
-          <p className="text-xs text-zinc-500">Filtros en Tareas y opciones al crear OT.</p>
+          <p className="text-xs text-zinc-500">Filtros en órdenes de trabajo y opciones al crear OT.</p>
           <div className="flex flex-wrap gap-3">
             {TODAS_ESPECIALIDADES.map((esp) => (
               <label key={esp} className="flex cursor-pointer items-center gap-2">
@@ -243,6 +244,25 @@ export function SuperadminCentroFlagsPanel() {
             }
           />
           <span>Requerir firma del usuario de planta al cerrar OT (modo pad)</span>
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4"
+            checked={config.auto_publicar_propuesta}
+            onChange={() =>
+              setConfig((c) => ({
+                ...c,
+                auto_publicar_propuesta: !c.auto_publicar_propuesta,
+              }))
+            }
+          />
+          <span>
+            Publicar automáticamente la propuesta del motor tras 48&nbsp;h sin revisión (piloto). También aplica si no
+            hay supervisores/admin en el centro. Requiere <span className="font-mono">CRON_AUTOPUBLISH_ACTOR_UID</span>{" "}
+            o un superadmin activo.
+          </span>
         </label>
 
         {errorMsg ? <p className="text-sm text-red-600 dark:text-red-400">{errorMsg}</p> : null}

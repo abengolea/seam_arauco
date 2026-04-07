@@ -13,7 +13,14 @@ export const COLLECTIONS = {
   stock_movimientos: "stock_movimientos",
   weekly_schedule: "weekly_schedule",
   programa_semanal: "programa_semanal",
+  /** Plan maestro por aviso SAP — motor diario y vencimientos unificados. */
+  plan_mantenimiento: "plan_mantenimiento",
+  /** Propuesta semanal generada por el motor (aprobar → work_orders). */
+  propuestas_semana: "propuestas_semana",
 } as const;
+
+export const PLAN_MANTENIMIENTO_COLLECTION = COLLECTIONS.plan_mantenimiento;
+export const PROPUESTAS_SEMANA_COLLECTION = COLLECTIONS.propuestas_semana;
 
 /** Alias explícitos para scripts / repositorios (misma colección que `COLLECTIONS`). */
 export const ASSETS_COLLECTION = COLLECTIONS.assets;

@@ -546,7 +546,7 @@ export function MaterialesReportingClient() {
                   </table>
                   <p className="px-2 pt-2 text-xs">
                     <Link href={`/tareas/${g.otId}`} className="text-brand underline-offset-2 hover:underline">
-                      Abrir OT en Tareas →
+                      Abrir OT en órdenes de trabajo →
                     </Link>
                   </p>
                 </div>

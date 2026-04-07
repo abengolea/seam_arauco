@@ -2,6 +2,7 @@ import { getAdminDb } from "@/firebase/firebaseAdmin";
 import { AppError } from "@/lib/errors/app-error";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import {
+  appendAvisoToProgramaSemanaAdmin,
   createWeeklyPlanRowAdmin,
   createWeeklySlotAdmin,
   deleteWeeklyPlanRowAdmin,
@@ -11,7 +12,11 @@ import {
   replaceWeeklyPlanRowsAdmin,
   updateWeeklyPlanRowAdmin,
 } from "@/modules/scheduling/repository";
-import type { WeeklyPlanRow } from "@/modules/scheduling/types";
+import type { AvisoSlot, DiaSemanaPrograma, EspecialidadPrograma, WeeklyPlanRow } from "@/modules/scheduling/types";
+import { toPermisoRol } from "@/lib/permisos/index";
+import type { UserProfileWithUid } from "@/modules/users/repository";
+import { getAvisoById, updateAviso } from "@/modules/notices/repository";
+import type { Especialidad } from "@/modules/notices/types";
 import { getWorkOrderById } from "@/modules/work-orders/repository";
 
 async function nextOrdenEnDia(weekId: string, dia: number): Promise<number> {
@@ -126,4 +131,53 @@ export async function removeWeeklyPlanRow(input: {
     throw new AppError("FORBIDDEN", "La fila pertenece a otro centro");
   }
   await deleteWeeklyPlanRowAdmin(input.weekId, input.rowId);
+}
+
+function especialidadAAvisoToPrograma(esp: Especialidad): EspecialidadPrograma {
+  if (esp === "ELECTRICO" || esp === "HG") return "Electrico";
+  if (esp === "AA") return "Aire";
+  return "GG";
+}
+
+/** Publica un aviso en `programa_semanal` y marca `incluido_en_semana`. */
+export async function addAvisoToPublishedPrograma(input: {
+  semanaId: string;
+  avisoFirestoreId: string;
+  dia: DiaSemanaPrograma;
+  localidad?: string;
+  session: UserProfileWithUid;
+}): Promise<void> {
+  const aviso = await getAvisoById(input.avisoFirestoreId);
+  if (!aviso) {
+    throw new AppError("NOT_FOUND", "Aviso no encontrado");
+  }
+  const rol = toPermisoRol(input.session.rol);
+  if (rol !== "superadmin" && aviso.centro !== input.session.centro) {
+    throw new AppError("FORBIDDEN", "El aviso pertenece a otro centro");
+  }
+  if (aviso.incluido_en_semana === input.semanaId) {
+    throw new AppError("CONFLICT", "Este aviso ya figura incluido en esta semana");
+  }
+  const espProg = especialidadAAvisoToPrograma(aviso.especialidad);
+  const loc =
+    (input.localidad?.trim() || aviso.ubicacion_tecnica || aviso.centro || "").trim() || "—";
+  const nuevoAviso: AvisoSlot = {
+    numero: aviso.n_aviso,
+    descripcion: aviso.texto_corto || aviso.n_aviso,
+    tipo:
+      aviso.tipo === "CORRECTIVO" || aviso.tipo === "EMERGENCIA" ? "correctivo" : "preventivo",
+    urgente: aviso.urgente === true,
+    ubicacion: aviso.ubicacion_tecnica,
+  };
+  await appendAvisoToProgramaSemanaAdmin({
+    semanaId: input.semanaId,
+    centro: aviso.centro,
+    dia: input.dia,
+    especialidad: espProg,
+    localidad: loc,
+    nuevoAviso,
+  });
+  await updateAviso(aviso.id, {
+    incluido_en_semana: input.semanaId,
+  });
 }

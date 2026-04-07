@@ -74,6 +74,13 @@ export interface Aviso {
   ptoTrbRes?: string;
   fechaProgramada?: Timestamp;
   otId?: string;
+  /** Trazabilidad / vencimientos (espejo conceptual de `modules/notices/types` Aviso). */
+  ultimaEjecucionOtId?: string;
+  ultimaEjecucionFecha?: Timestamp;
+  proximoVencimiento?: Timestamp;
+  diasParaVencimiento?: number;
+  estadoVencimiento?: "ok" | "proximo" | "vencido";
+  incluidoEnSemana?: string;
   createdAt: Timestamp;
 }
 
@@ -214,7 +221,8 @@ export type NotificacionTipo =
   | "comentario_respondido"
   | "stock_bajo"
   | "ot_asignada"
-  | "ot_vencida";
+  | "ot_vencida"
+  | "propuesta_disponible";
 
 /** Ítem en `notificaciones/{uid}/items/{id}` */
 export interface Notificacion {

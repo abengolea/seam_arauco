@@ -1,6 +1,5 @@
-import { getAdminAuth } from "@/firebase/firebaseAdmin";
 import { AppError } from "@/lib/errors/app-error";
-import { verifyIdTokenBasic } from "@/lib/auth/verify-id-token";
+import { verifyFirebaseIdTokenOrThrow } from "@/lib/auth/verify-id-token";
 import { type Permiso, tienePermiso, toPermisoRol, type Rol } from "@/lib/permisos/index";
 import { getUserProfileByUid } from "@/modules/users/repository";
 import type { UserProfile } from "@/modules/users/types";
@@ -28,8 +27,8 @@ export async function requirePermiso(
     throw new AppError("UNAUTHORIZED", "Token de sesión requerido");
   }
 
-  const { uid } = await verifyIdTokenBasic(token);
-  const decoded = await getAdminAuth().verifyIdToken(token, true);
+  const decoded = await verifyFirebaseIdTokenOrThrow(token, true);
+  const uid = decoded.uid;
 
   const profile = await getUserProfileByUid(uid);
   if (!profile) {

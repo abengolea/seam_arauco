@@ -1,6 +1,6 @@
 "use client";
 
-import { getFirebaseDb } from "@/firebase/firebaseClient";
+import { getFirebaseAuth, getFirebaseDb } from "@/firebase/firebaseClient";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { DEFAULT_CENTRO } from "@/lib/config/app-config";
 import { mergeCentroConfig } from "@/modules/centros/merge-config";
@@ -22,21 +22,38 @@ export function useCentroConfigLive(centroId: string | undefined | null): {
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    const db = getFirebaseDb();
-    const ref = doc(db, COLLECTIONS.centros, id);
-    const unsub: Unsubscribe = onSnapshot(
-      ref,
-      (snap) => {
-        setConfig(mergeCentroConfig(snap.exists() ? (snap.data() as Record<string, unknown>) : undefined));
-        setLoading(false);
-        setError(null);
-      },
-      (err) => {
-        setError(err);
-        setLoading(false);
-      },
-    );
-    return () => unsub();
+    let cancelled = false;
+    let unsub: Unsubscribe | undefined;
+    void (async () => {
+      const auth = getFirebaseAuth();
+      await auth.authStateReady();
+      if (cancelled || !auth.currentUser) {
+        if (!cancelled) {
+          setConfig(mergeCentroConfig(undefined));
+          setLoading(false);
+          setError(null);
+        }
+        return;
+      }
+      const db = getFirebaseDb();
+      const ref = doc(db, COLLECTIONS.centros, id);
+      unsub = onSnapshot(
+        ref,
+        (snap) => {
+          setConfig(mergeCentroConfig(snap.exists() ? (snap.data() as Record<string, unknown>) : undefined));
+          setLoading(false);
+          setError(null);
+        },
+        (err) => {
+          setError(err);
+          setLoading(false);
+        },
+      );
+    })();
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
   }, [id]);
 
   return { config, loading, error };
