@@ -1,6 +1,7 @@
 import { FieldValue, type DocumentSnapshot } from "firebase-admin/firestore";
 import * as XLSX from "xlsx";
 import { getAdminDb } from "@/firebase/firebaseAdmin";
+import { normalizeCentro } from "@/lib/firestore/derive-centro";
 import type { EspecialidadActivo } from "@/modules/assets/types";
 
 export type ParsedAssetImportRow = {
@@ -139,7 +140,7 @@ export function parseAssetsWorkbook(
         cols.legacy !== undefined ? str(line[cols.legacy]) : "";
       const centroCell =
         cols.centroRow !== undefined ? str(line[cols.centroRow]) : "";
-      const centro = (centroCell || centroDefault).trim();
+      const centro = normalizeCentro(centroCell || centroDefault, ubicacion_tecnica, codigo_nuevo);
 
       if (!codigo_nuevo && !ubicacion_tecnica && !denominacion) continue;
       if (!codigo_nuevo) {
